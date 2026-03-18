@@ -1,0 +1,21 @@
+version: '3.8'
+services:
+  agent-api:
+    build: .
+    ports: ["8000:8000"]
+    environment:
+      - ENV=development
+    volumes:
+      - ./agent_core:/app/agent_core
+  agent-web:
+    build: ./web
+    ports: ["3000:3000"]
+    volumes:
+      - ./web/src:/app/src
+  db:
+    image: mcr.microsoft.com/mssql/server:2022-latest
+    environment:
+      ACCEPT_EULA: "Y"
+      MSSQL_SA_PASSWORD: "YourStrong!Passw0rd"
+      MSSQL_PID: "Developer"
+    ports: ["1433:1433"]
