@@ -21,6 +21,7 @@ class CodeFeedback(BaseModel):
 class SkillAssessmentRequest(BaseModel):
     code_snippet: str
     language: str = "python"
+    working_directory: Optional[str] = None
 
 class SkillAssessment(BaseModel):
     primary_language: str
