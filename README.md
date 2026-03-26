@@ -69,6 +69,9 @@ python -m venv venv
 source venv/bin/activate  # Windows: venv\Scripts\activate
 pip install -r requirements.txt
 uvicorn agent_core.api.main:app --reload
+cd d:\programming\taskAuto
+venv\Scripts\python.exe -m cli.daemon --token default_agent --server 127.0.0.1:8000
+
 ```
 
 API will be available at `http://localhost:8000`.
