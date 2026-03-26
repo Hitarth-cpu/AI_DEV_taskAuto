@@ -1,0 +1,4 @@
+frontend: npm run dev
+environment: .\venv\Scripts\python.exe
+backend: uvicorn agent_core.api.main:app --reload --port 8000
+daemon: .\venv\Scripts\python.exe -m cli.daemon
