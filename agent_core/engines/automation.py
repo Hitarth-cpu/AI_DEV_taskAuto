@@ -38,6 +38,21 @@ class AutomationEngine:
                     memory_context += f"Corrected Script:\n{memory.user_edited_script}\n\n"
                 memory_context += "-----------------------------------------------\n"
 
+        # Knowledge Base context (semantic RAG from uploaded team documents)
+        knowledge_context = ""
+        try:
+            from agent_core.knowledge.store import get_knowledge_store
+            ks = get_knowledge_store()
+            relevant_docs = ks.query(task_description, n_results=3)
+            if relevant_docs:
+                knowledge_context = "\n--- TEAM KNOWLEDGE BASE (Uploaded Docs & Configs) ---\n"
+                knowledge_context += "The following context was retrieved from the team's uploaded documents. Use it to align the script with team conventions:\n\n"
+                for i, doc in enumerate(relevant_docs, 1):
+                    knowledge_context += f"[Doc {i}]:\n{doc[:800]}\n\n"
+                knowledge_context += "------------------------------------------------------\n"
+        except Exception as e:
+            print(f"[AutomationEngine] Knowledge base unavailable: {e}")
+
         # Build the working directory context block
         if working_directory and working_directory.strip():
             cwd_block = f"""
@@ -76,6 +91,7 @@ User Intent: "{task_description}"
 Target Shell: {shell_info}
 {cwd_block}
 {memory_context}
+{knowledge_context}
 
 Deliver:
 1. script — A COMPLETE, IMMEDIATELY EXECUTABLE script. Raw code only, NO markdown fences (no ```bash or ```powershell). It must work on first run without editing.
@@ -112,3 +128,86 @@ Deliver:
                 db.add(AutomationMemory(intent=task_description, is_successful=False, reasoning=str(e)))
                 db.commit()
             return f"echo 'Failed to generate script: {str(e)}'", f"Error: {str(e)}", "", [], -1
+
+    async def fix_script(
+        self,
+        original_intent: str,
+        failed_script: str,
+        error_output: str,
+        target_env: str,
+        iteration: int,
+        db: Session = None,
+        record_id: int = None,
+    ) -> tuple[str, str, str, list, int]:
+        """
+        Feature 4 — Auto Fix-It Loop.
+        Analyse a failed script + its captured stderr/stdout and return a corrected version.
+        Iteration history is written to the existing `iteration_history` DB column.
+        """
+        if target_env.lower() == "windows":
+            shell_info = "PowerShell 5.1+ on Windows. Use PowerShell cmdlets."
+        else:
+            shell_info = "Bash on Linux/macOS. Use POSIX-compatible commands."
+
+        # Truncate very long error output to keep prompt size reasonable
+        truncated_error = error_output[-1500:] if len(error_output) > 1500 else error_output
+
+        prompt = f"""
+You are a senior DevOps engineer debugging a FAILED automation script.
+
+Original Task Intent: "{original_intent}"
+Target Shell: {shell_info}
+Fix Iteration: {iteration}/3
+
+The following script FAILED during execution:
+```
+{failed_script}
+```
+
+Captured Error Output:
+```
+{truncated_error}
+```
+
+Analyse the error carefully, identify the exact root cause, and provide a COMPLETELY FIXED version.
+
+Do NOT:
+- Repeat the same mistake
+- Use placeholder comments or stub code
+- Leave any section incomplete
+
+Deliver:
+1. script — The COMPLETE FIXED script. Raw code only, NO markdown fences.
+2. reasoning — What caused the failure and exactly what you changed to fix it.
+3. validation_script — A lightweight script to confirm the fix succeeded (exits 0 on success).
+4. blast_radius_report — Warnings for destructive actions. Empty list if safe.
+"""
+
+        try:
+            result = self.structured_llm.invoke(prompt)
+
+            if db and record_id:
+                import json
+                record = db.query(AutomationMemory).filter(AutomationMemory.id == record_id).first()
+                if record:
+                    history = json.loads(record.iteration_history or "[]")
+                    history.append({
+                        "iteration": iteration,
+                        "error_output": error_output[-500:],
+                        "reasoning": result.reasoning,
+                    })
+                    record.iteration_history = json.dumps(history)
+                    record.generated_script = result.script  # keep latest fixed version
+                    db.commit()
+                    db.refresh(record)
+
+            return result.script, result.reasoning, result.validation_script, result.blast_radius_report, record_id if record_id else -1
+
+        except Exception as e:
+            return (
+                f"echo 'Fix generation failed: {str(e)}'",
+                f"Fix Error: {str(e)}",
+                "",
+                [],
+                record_id if record_id else -1,
+            )
