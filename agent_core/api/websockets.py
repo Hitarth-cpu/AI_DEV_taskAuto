@@ -22,6 +22,9 @@ class ConnectionManager:
     async def connect_ui(self, session_id: str, websocket: WebSocket):
         await websocket.accept()
         self.ui_connections[session_id] = websocket
+        # Immediately inform the new UI of every CLI agent that is already online
+        for token in self.cli_connections:
+            await websocket.send_json({"type": "agent_status", "token": token, "status": "online"})
 
     def disconnect_ui(self, session_id: str):
         if session_id in self.ui_connections:
