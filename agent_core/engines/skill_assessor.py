@@ -18,7 +18,7 @@ class SkillAssessmentEngine:
         # Force the LLM to reply exactly matching our strictly typed JSON schema
         self.structured_llm = self.llm.with_structured_output(SkillAssessment)
 
-    async def assess_snippet(self, code_snippet: str, language: str, db: Session = None) -> SkillAssessment:
+    async def assess_snippet(self, code_snippet: str, language: str, db: Session = None, working_directory: str = None) -> SkillAssessment:
         # First, act as a QA tester and execute the code to find out what it does
         stdout, stderr, execute_error = execute_code(code_snippet, language)
         
@@ -60,7 +60,8 @@ class SkillAssessmentEngine:
                     technical_score=result.technical_score,
                     raw_snippet=code_snippet,
                     test_execution_output=result.test_execution_output,
-                    tester_suggestions=json.dumps(result.tester_suggestions)
+                    tester_suggestions=json.dumps(result.tester_suggestions),
+                    working_directory=working_directory or None,
                 )
                 db.add(record)
                 db.commit()
