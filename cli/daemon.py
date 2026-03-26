@@ -10,12 +10,15 @@ app = typer.Typer(help="AI Developer Agent: Zero-Click CLI Daemon")
 
 async def listen_for_jobs(token: str, server_url: str):
     uri = f"ws://{server_url}/ws/cli/{token}"
-    
-    while True:  # Auto-reconnect loop
+    backoff = 1   # seconds; doubles on each failure, capped at 60s
+    max_backoff = 60
+
+    while True:  # Auto-reconnect loop with exponential backoff
         typer.secho(f"Connecting to AI Dashboard at {uri}...", fg=typer.colors.CYAN)
         try:
             async with websockets.connect(uri) as websocket:
-                typer.secho("✅ Connected successfully. Waiting for remote execution jobs...", fg=typer.colors.GREEN, bold=True)
+                backoff = 1  # reset on successful connection
+                typer.secho("[OK] Connected successfully. Waiting for remote execution jobs...", fg=typer.colors.GREEN, bold=True)
                 
                 while True:
                     message = await websocket.recv()
@@ -92,8 +95,9 @@ async def listen_for_jobs(token: str, server_url: str):
                                 os.unlink(temp_path)
                                 
         except Exception as e:
-            typer.secho(f"❌ Disconnected: {e}. Retrying in 5 seconds...", fg=typer.colors.RED)
-            await asyncio.sleep(5)
+            typer.secho(f"[ERR] Disconnected: {e}. Retrying in {backoff}s...", fg=typer.colors.RED)
+            await asyncio.sleep(backoff)
+            backoff = min(backoff * 2, max_backoff)
 
 @app.command()
 def start_daemon(
