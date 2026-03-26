@@ -9,7 +9,9 @@ import os
 app = typer.Typer(help="AI Developer Agent: Zero-Click CLI Daemon")
 
 async def listen_for_jobs(token: str, server_url: str):
-    uri = f"ws://{server_url}/ws/cli/{token}"
+    is_local = "localhost" in server_url or "127.0.0.1" in server_url
+    scheme = "ws" if is_local else "wss"
+    uri = f"{scheme}://{server_url}/ws/cli/{token}"
     backoff = 1   # seconds; doubles on each failure, capped at 60s
     max_backoff = 60
 
