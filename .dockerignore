@@ -1,0 +1,23 @@
+# General
+.git/
+.gitignore
+.dockerignore
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+venv/
+.env
+local_memory.db
+agent.db
+
+# Frontend
+web/.next/
+web/node_modules/
+web/out/
+web/.env.local
+
+# OS
+.DS_Store
+Thumbs.db
