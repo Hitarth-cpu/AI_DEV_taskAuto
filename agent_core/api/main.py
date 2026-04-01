@@ -24,6 +24,56 @@ from agent_core.api.websockets import manager
 from contextlib import asynccontextmanager
 
 # ---------------------------------------------------------------------------
+# Raw ASGI middleware — injects CORS headers on EVERY response (including 500s
+# and OPTIONS preflight) BEFORE FastAPI's CORSMiddleware sees the request.
+# This ensures the browser always gets Access-Control-Allow-Origin even when
+# an unhandled exception produces a 500 and CORSMiddleware never runs.
+# ---------------------------------------------------------------------------
+
+class AlwaysCORSMiddleware:
+    """Outermost ASGI layer: stamps CORS headers unconditionally."""
+
+    _CORS_HEADERS = [
+        (b"access-control-allow-origin", b"*"),
+        (b"access-control-allow-headers", b"*"),
+        (b"access-control-allow-methods", b"*"),
+    ]
+
+    def __init__(self, app):
+        self._app = app
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] == "http":
+            # Handle OPTIONS preflight directly so it never falls through to
+            # the inner stack (which might 405 before CORSMiddleware fires).
+            if scope.get("method") == "OPTIONS":
+                await send({
+                    "type": "http.response.start",
+                    "status": 204,
+                    "headers": self._CORS_HEADERS + [
+                        (b"content-length", b"0"),
+                    ],
+                })
+                await send({"type": "http.response.body", "body": b""})
+                return
+
+            async def send_with_cors(event):
+                if event["type"] == "http.response.start":
+                    # Strip any existing CORS headers the inner stack set, then
+                    # re-add our unconditional ones so there are no duplicates.
+                    existing = [
+                        (k, v) for k, v in event.get("headers", [])
+                        if not k.lower().startswith(b"access-control-")
+                    ]
+                    event = dict(event)
+                    event["headers"] = existing + self._CORS_HEADERS
+                await send(event)
+
+            await self._app(scope, receive, send_with_cors)
+        else:
+            await self._app(scope, receive, send)
+
+# ---------------------------------------------------------------------------
 # Input sanitization utility
 # ---------------------------------------------------------------------------
 
@@ -81,8 +131,27 @@ def init_db():
         print(f"ERROR: [DB] Infrastructure failure: {e}")
 
 
+def _startup_import_check():
+    """Log which heavy optional packages are importable. Non-fatal — failures
+    are reported as warnings so the server still starts even on Render where
+    some wheels may be missing."""
+    packages = {
+        "langchain": "langchain",
+        "google-genai": "google.generativeai",
+        "chromadb": "chromadb",
+        "langchain_google_genai": "langchain_google_genai",
+    }
+    for label, module in packages.items():
+        try:
+            __import__(module)
+            print(f"INFO: [startup] package '{label}' — OK")
+        except Exception as exc:
+            print(f"WARNING: [startup] package '{label}' — UNAVAILABLE ({exc})")
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    _startup_import_check()
     init_db()
     yield
 
@@ -123,6 +192,12 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# AlwaysCORSMiddleware is added AFTER CORSMiddleware so that it becomes the
+# outermost ASGI layer (add_middleware stacks in reverse — last added = first
+# to intercept each request/response). This guarantees CORS headers are
+# injected even on 500s that bypass CORSMiddleware's response path.
+app.add_middleware(AlwaysCORSMiddleware)
 
 # ---------------------------------------------------------------------------
 # Health check
@@ -238,8 +313,27 @@ async def fix_automation(req: FixRequest, db: Session = Depends(get_db)):
 @app.post("/api/v1/assess", response_model=SkillAssessment)
 async def assess_skills(req: SkillAssessmentRequest, db: Session = Depends(get_db)):
     req.code_snippet = sanitize_input(req.code_snippet, max_length=5000)
-    eng = SkillAssessmentEngine()
-    assessment = await eng.assess_snippet(req.code_snippet, req.language, db, req.working_directory)
+    try:
+        eng = SkillAssessmentEngine()
+    except Exception as exc:
+        # On Render (or any constrained environment) a missing dependency
+        # (langchain, google-genai, chromadb …) causes SkillAssessmentEngine
+        # instantiation to raise.  Return 503 with a human-readable message
+        # so the browser sees JSON instead of an opaque 500.
+        raise HTTPException(
+            status_code=503,
+            detail=(
+                f"Skill assessment engine unavailable — a required dependency "
+                f"failed to load: {exc}"
+            ),
+        )
+    try:
+        assessment = await eng.assess_snippet(req.code_snippet, req.language, db, req.working_directory)
+    except Exception as exc:
+        raise HTTPException(
+            status_code=503,
+            detail=f"Skill assessment failed: {exc}",
+        )
     return assessment
 
 @app.get("/api/v1/assess/history")
