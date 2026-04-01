@@ -1,0 +1,32 @@
+services:
+  - type: web
+    name: taskauto-api
+    runtime: python
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn agent_core.api.main:app --host 0.0.0.0 --port $PORT
+    envVars:
+      - key: GOOGLE_API_KEY
+        sync: false
+      - key: DB_HOST
+        sync: false
+      - key: DB_PORT
+        value: "3306"
+      - key: DB_USER
+        sync: false
+      - key: DB_PASSWORD
+        sync: false
+      - key: DB_NAME
+        value: "taskautodb"
+      - key: PYTHON_VERSION
+        value: "3.13.0"
+
+  - type: worker
+    name: taskauto-daemon
+    runtime: python
+    buildCommand: pip install -r requirements.txt
+    startCommand: python -m cli.daemon --token render_agent --server ai-dev-taskauto.onrender.com
+    envVars:
+      - key: PYTHON_VERSION
+        value: "3.13.0"
+      - key: PYTHONUNBUFFERED
+        value: "1"
