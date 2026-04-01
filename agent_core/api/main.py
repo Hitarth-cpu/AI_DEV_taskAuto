@@ -263,7 +263,10 @@ async def generate_automation(req: TaskRequest, db: Session = Depends(get_db)):
 @app.get("/api/v1/automate/history")
 async def get_automation_history(db: Session = Depends(get_db)):
     records = db.query(models.AutomationMemory).order_by(models.AutomationMemory.created_at.desc()).limit(50).all()
-    return records
+    return [
+        {k: v for k, v in r.__dict__.items() if not k.startswith("_")}
+        for r in records
+    ]
 
 class AutomationEditRequest(TaskRequest):
     id: int
@@ -339,7 +342,10 @@ async def assess_skills(req: SkillAssessmentRequest, db: Session = Depends(get_d
 @app.get("/api/v1/assess/history")
 async def get_assessment_history(db: Session = Depends(get_db)):
     records = db.query(models.SkillAssessmentRecord).order_by(models.SkillAssessmentRecord.created_at.desc()).limit(50).all()
-    return records
+    return [
+        {k: v for k, v in r.__dict__.items() if not k.startswith("_")}
+        for r in records
+    ]
 
 # ---------------------------------------------------------------------------
 # Feature 2 — Team Knowledge Base (Vector RAG) endpoints
@@ -403,11 +409,15 @@ async def create_template(req: TemplateCreateRequest, db: Session = Depends(get_
     db.add(tpl)
     db.commit()
     db.refresh(tpl)
-    return tpl
+    return {k: v for k, v in tpl.__dict__.items() if not k.startswith("_")}
 
 @app.get("/api/v1/templates")
 async def list_templates(db: Session = Depends(get_db)):
-    return db.query(models.ScriptTemplate).order_by(models.ScriptTemplate.created_at.desc()).all()
+    records = db.query(models.ScriptTemplate).order_by(models.ScriptTemplate.created_at.desc()).all()
+    return [
+        {k: v for k, v in r.__dict__.items() if not k.startswith("_")}
+        for r in records
+    ]
 
 @app.delete("/api/v1/templates/{template_id}")
 async def delete_template(template_id: int, db: Session = Depends(get_db)):
