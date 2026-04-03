@@ -43,6 +43,7 @@ export default function Home() {
           {activeTab === "automation" && (
             <AutomationTab
               agentStatus={ws.agentStatus}
+              onlineAgents={ws.onlineAgents}
               executionLogs={ws.executionLogs}
               setExecutionLogs={ws.setExecutionLogs}
               sendExecution={ws.sendExecution}

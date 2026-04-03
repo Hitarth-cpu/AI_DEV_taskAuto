@@ -151,11 +151,11 @@ def execute_code(code_snippet: str, language: str):
         else:
             return "", "", f"Unsupported language: {language}"
 
-        result = subprocess.run(command, capture_output=True, text=True, timeout=10)
+        result = subprocess.run(command, capture_output=True, text=True, timeout=60)
         return result.stdout, result.stderr, None
 
     except subprocess.TimeoutExpired:
-        return "", "", "Execution timed out (10s limit exceeded)."
+        return "", "", "Execution timed out (60s limit exceeded)."
     except Exception as e:
         return "", "", str(e)
     finally:

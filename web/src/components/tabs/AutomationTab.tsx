@@ -13,6 +13,7 @@ import { History, Save, Play, ShieldAlert, CheckCircle2 } from "lucide-react";
 
 interface AutomationTabProps {
   agentStatus: "online" | "offline";
+  onlineAgents: string[];
   executionLogs: string[];
   setExecutionLogs: React.Dispatch<React.SetStateAction<string[]>>;
   sendExecution: (script: string, isValidation: boolean, workingDir: string, token?: string) => void;
@@ -22,6 +23,7 @@ interface AutomationTabProps {
 
 export default function AutomationTab({
   agentStatus,
+  onlineAgents,
   executionLogs,
   setExecutionLogs,
   sendExecution,
@@ -61,6 +63,15 @@ export default function AutomationTab({
   // Keep activeResultRef in sync
   useEffect(() => { activeResultRef.current = result; }, [result]);
 
+  // Active agent token (auto-set to first connected; user can override via dropdown)
+  const [selectedAgent, setSelectedAgent] = useState<string>("");
+  useEffect(() => {
+    if (onlineAgents.length > 0 && !onlineAgents.includes(selectedAgent)) {
+      setSelectedAgent(onlineAgents[0]);
+    }
+    if (onlineAgents.length === 0) setSelectedAgent("");
+  }, [onlineAgents]);
+
   // Sidebar
   const [sidebarOpen, setSidebarOpen] = useState(false);
 
@@ -81,7 +92,7 @@ export default function AutomationTab({
       }
       if (code === 0 && autoValidate && activeResultRef.current?.validation_script && !isValidation) {
         setExecutionLogs((p) => [...p, "\n[SYSTEM] Auto-running validation test…\n"]);
-        sendExecution(activeResultRef.current.validation_script, true, workDir);
+        sendExecution(activeResultRef.current.validation_script, true, workDir, selectedAgent || undefined);
       }
     });
   }, [autoValidate, workDir]);
@@ -117,10 +128,11 @@ export default function AutomationTab({
   const handleRun = (script: string, isValidation = false) => {
     if (!script) return;
     const pathLabel = workDir.trim() || "(daemon's current directory)";
-    if (!window.confirm(`Run ${isValidation ? "Validation" : "Primary"} script?\n\nDirectory: ${pathLabel}`)) return;
+    const agentLabel = selectedAgent || onlineAgents[0] || "default_agent";
+    if (!window.confirm(`Run ${isValidation ? "Validation" : "Primary"} script?\n\nDirectory: ${pathLabel}\nAgent: ${agentLabel}`)) return;
     setExecutionLogs([]);
     setShowFixOffer(false);
-    sendExecution(script, isValidation, workDir.trim());
+    sendExecution(script, isValidation, workDir.trim(), agentLabel);
   };
 
   const handleAutoFix = async () => {
@@ -153,11 +165,17 @@ export default function AutomationTab({
   };
 
   const handleSaveCorrection = async () => {
-    if (!result?.id || !userCorrection.trim()) return;
+    if (!userCorrection.trim()) return;
+    if (!result?.id) {
+      toast.error("No record ID — generate a script first before submitting a correction.");
+      return;
+    }
     try {
       await api.automateEdit({ id: result.id, task_description: task, target_env: env, user_edited_script: userCorrection });
       setCorrectionSaved(true);
-      toast.success("Correction saved — AI will learn from this");
+      toast.success("Correction saved — regenerating improved script…");
+      // Immediately rebuild so the AI uses the correction as RAG context right now
+      await handleGenerate();
     } catch (err: any) {
       toast.error(err.message);
     }
@@ -299,18 +317,33 @@ export default function AutomationTab({
                     <Save size={11} /> Save as Template
                   </button>
                 )}
-                <button
-                  onClick={() => handleRun(result.script)}
-                  disabled={agentStatus === "offline"}
-                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition ${
-                    agentStatus === "online"
-                      ? "bg-blue-600/20 text-blue-400 hover:bg-blue-600/30 border border-blue-500/30"
-                      : "bg-neutral-800 text-neutral-500 cursor-not-allowed"
-                  }`}
-                >
-                  <span className={`w-1.5 h-1.5 rounded-full ${agentStatus === "online" ? "bg-green-500 shadow-[0_0_6px_rgba(34,197,94,0.8)]" : "bg-red-500"}`} />
-                  {agentStatus === "online" ? "Run via CLI" : "Agent Offline"}
-                </button>
+                <div className="flex items-center gap-1.5">
+                  {onlineAgents.length > 1 && (
+                    <select
+                      value={selectedAgent}
+                      onChange={(e) => setSelectedAgent(e.target.value)}
+                      className="bg-neutral-900 border border-neutral-800 rounded-lg px-2 py-1.5 text-xs text-neutral-300 focus:outline-none focus:border-neutral-600 font-mono"
+                    >
+                      {onlineAgents.map((t) => (
+                        <option key={t} value={t}>{t}</option>
+                      ))}
+                    </select>
+                  )}
+                  <button
+                    onClick={() => handleRun(result.script)}
+                    disabled={agentStatus === "offline"}
+                    className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition ${
+                      agentStatus === "online"
+                        ? "bg-blue-600/20 text-blue-400 hover:bg-blue-600/30 border border-blue-500/30"
+                        : "bg-neutral-800 text-neutral-500 cursor-not-allowed"
+                    }`}
+                  >
+                    <span className={`w-1.5 h-1.5 rounded-full ${agentStatus === "online" ? "bg-green-500 shadow-[0_0_6px_rgba(34,197,94,0.8)]" : "bg-red-500"}`} />
+                    {agentStatus === "online"
+                      ? `Run via ${onlineAgents[0] ?? "CLI"}`
+                      : "Agent Offline"}
+                  </button>
+                </div>
               </div>
             </div>
 
