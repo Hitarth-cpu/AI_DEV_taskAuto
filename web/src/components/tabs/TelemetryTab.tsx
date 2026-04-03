@@ -1,21 +1,24 @@
 "use client";
 import { useEffect, useState } from "react";
 import { api } from "@/lib/api";
-import { RefreshCw } from "lucide-react";
+import { RefreshCw, AlertCircle } from "lucide-react";
 
 export default function TelemetryTab() {
   const [assessHistory, setAssessHistory] = useState<any[]>([]);
   const [autoHistory, setAutoHistory] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
+  const [fetchError, setFetchError] = useState<string | null>(null);
 
   const fetchAll = async () => {
     setLoading(true);
+    setFetchError(null);
     try {
       const [a, b] = await Promise.all([api.assessHistory(), api.automateHistory()]);
       setAssessHistory(a);
       setAutoHistory(b);
-    } catch (_) {}
-    finally { setLoading(false); }
+    } catch (err: any) {
+      setFetchError(err.message ?? "Failed to load data from backend");
+    } finally { setLoading(false); }
   };
 
   useEffect(() => { fetchAll(); }, []);
@@ -35,6 +38,13 @@ export default function TelemetryTab() {
           <RefreshCw size={12} className={loading ? "animate-spin" : ""} /> Refresh
         </button>
       </div>
+
+      {fetchError && (
+        <div className="flex items-center gap-2 mb-6 bg-red-500/5 border border-red-500/20 rounded-xl px-4 py-3 text-sm text-red-400">
+          <AlertCircle size={14} className="shrink-0" />
+          <span>Backend error: {fetchError}</span>
+        </div>
+      )}
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
         {/* Assessments */}

@@ -138,6 +138,7 @@ Deliver:
         iteration: int,
         db: Session = None,
         record_id: int = None,
+        working_directory: str = "",
     ) -> tuple[str, str, str, list, int]:
         """
         Feature 4 — Auto Fix-It Loop.
@@ -198,6 +199,8 @@ Deliver:
                     })
                     record.iteration_history = json.dumps(history)
                     record.generated_script = result.script  # keep latest fixed version
+                    if working_directory and not record.working_directory:
+                        record.working_directory = working_directory
                     db.commit()
                     db.refresh(record)
 

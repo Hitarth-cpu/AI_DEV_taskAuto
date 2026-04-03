@@ -3,7 +3,7 @@ import { useEffect, useState, useMemo } from "react";
 import dynamic from "next/dynamic";
 import { motion } from "framer-motion";
 import { api } from "@/lib/api";
-import { RefreshCw, FolderOpen, Layers, Clock } from "lucide-react";
+import { RefreshCw, FolderOpen, Layers, Clock, AlertCircle } from "lucide-react";
 
 const FlowGraph = dynamic(() => import("@/components/graph/FlowGraph"), { ssr: false });
 
@@ -26,16 +26,19 @@ export default function GraphTab() {
   const [automations, setAutomations] = useState<any[]>([]);
   const [assessments, setAssessments] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
+  const [fetchError, setFetchError] = useState<string | null>(null);
   const [selectedProject, setSelectedProject] = useState<string>("__all__");
 
   const fetchAll = async () => {
     setLoading(true);
+    setFetchError(null);
     try {
       const [autos, assess] = await Promise.all([api.automateHistory(), api.assessHistory()]);
       setAutomations(autos);
       setAssessments(assess);
-    } catch {}
-    finally { setLoading(false); }
+    } catch (err: any) {
+      setFetchError(err.message ?? "Failed to load data from backend");
+    } finally { setLoading(false); }
   };
 
   useEffect(() => { fetchAll(); }, []);
@@ -266,6 +269,19 @@ export default function GraphTab() {
           transition={{ delay: 0.18, duration: 0.45 }}
           style={{ flex: 1, position: "relative", background: "#08080f" }}
         >
+          {fetchError && (
+            <div style={{
+              position: "absolute", top: 16, left: "50%", transform: "translateX(-50%)",
+              zIndex: 20, display: "flex", alignItems: "center", gap: 8,
+              background: "rgba(239,68,68,0.08)", border: "1px solid rgba(239,68,68,0.25)",
+              borderRadius: 10, padding: "10px 16px", maxWidth: 480,
+            }}>
+              <AlertCircle size={14} style={{ color: "#ef4444", flexShrink: 0 }} />
+              <span style={{ fontSize: 12, color: "rgba(239,68,68,0.85)" }}>
+                Backend error: {fetchError}
+              </span>
+            </div>
+          )}
           {loading ? (
             <div style={{ display: "flex", alignItems: "center", justifyContent: "center", height: "100%", flexDirection: "column", gap: 12 }}>
               <div style={{

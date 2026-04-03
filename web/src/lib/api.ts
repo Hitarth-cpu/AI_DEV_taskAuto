@@ -38,6 +38,7 @@ export const api = {
     target_env: string;
     iteration: number;
     record_id?: number | null;
+    working_directory?: string;
   }) =>
     request("/api/v1/automate/fix", {
       method: "POST",

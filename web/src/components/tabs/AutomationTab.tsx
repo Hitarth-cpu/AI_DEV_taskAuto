@@ -138,6 +138,7 @@ export default function AutomationTab({
         target_env: env,
         iteration: newIter,
         record_id: activeResultRef.current.id ?? null,
+        working_directory: workDir,
       });
       setFixHistory((p) => [...p, { iteration: newIter, original: prevScript, fixed: fixedData.script, reasoning: fixedData.reasoning }]);
       setResult(fixedData);

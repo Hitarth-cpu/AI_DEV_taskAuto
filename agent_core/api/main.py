@@ -101,22 +101,16 @@ def init_db():
         models.Base.metadata.create_all(bind=engine)
 
         def add_col(table, col, ctype):
+            """Add a column if it doesn't exist. Works on SQLite, PostgreSQL, and MySQL."""
             try:
                 with engine.begin() as conn:
-                    check_sql = f"SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_NAME = '{table}' AND COLUMN_NAME = '{col}' AND TABLE_SCHEMA = DATABASE()"
-                    exists = conn.execute(text(check_sql)).fetchone()
-                    if not exists:
-                        conn.execute(text(f"ALTER TABLE {table} ADD {col} {ctype}"))
-                        print(f"INFO: [DB] Added column {col} to {table}")
+                    conn.execute(text(f"ALTER TABLE {table} ADD COLUMN {col} {ctype}"))
+                    print(f"INFO: [DB] Added column {col} to {table}")
             except Exception as e:
-                if "sqlite" in str(engine.url):
-                    try:
-                        with engine.begin() as conn:
-                            conn.execute(text(f"ALTER TABLE {table} ADD COLUMN {col} {ctype}"))
-                    except Exception:
-                        pass
-                else:
-                    print(f"DEBUG: [DB] Schema match skip for {table}.{col}: {e}")
+                err = str(e).lower()
+                # All three DB engines report "already exists" in their own way — that's fine
+                if not any(k in err for k in ["duplicate column", "already exists", "column already"]):
+                    print(f"DEBUG: [DB] Could not add {col} to {table}: {e}")
 
         add_col("skill_assessment_records", "test_execution_output", "TEXT")
         add_col("skill_assessment_records", "tester_suggestions", "TEXT")
@@ -200,6 +194,27 @@ app.add_middleware(
 app.add_middleware(AlwaysCORSMiddleware)
 
 # ---------------------------------------------------------------------------
+# Serialization helper
+# ---------------------------------------------------------------------------
+
+def serialize_record(r) -> dict:
+    """Convert a SQLAlchemy model instance to a JSON-safe dict.
+    Ensures created_at is always an ISO 8601 string with a timezone marker
+    so that JavaScript's Date() parses it correctly across all browsers.
+    """
+    d = {k: v for k, v in r.__dict__.items() if not k.startswith("_")}
+    dt = d.get("created_at")
+    if dt is not None:
+        if hasattr(dt, "isoformat"):
+            # Python datetime object — add Z if naïve (SQLite returns naïve datetimes)
+            d["created_at"] = dt.isoformat() if dt.tzinfo else dt.isoformat() + "Z"
+        elif isinstance(dt, str) and "T" not in dt:
+            # SQLite sometimes returns a bare string "YYYY-MM-DD HH:MM:SS"
+            d["created_at"] = dt.replace(" ", "T") + "Z"
+    return d
+
+
+# ---------------------------------------------------------------------------
 # Health check
 # ---------------------------------------------------------------------------
 
@@ -263,10 +278,7 @@ async def generate_automation(req: TaskRequest, db: Session = Depends(get_db)):
 @app.get("/api/v1/automate/history")
 async def get_automation_history(db: Session = Depends(get_db)):
     records = db.query(models.AutomationMemory).order_by(models.AutomationMemory.created_at.desc()).limit(50).all()
-    return [
-        {k: v for k, v in r.__dict__.items() if not k.startswith("_")}
-        for r in records
-    ]
+    return [serialize_record(r) for r in records]
 
 class AutomationEditRequest(TaskRequest):
     id: int
@@ -292,6 +304,7 @@ class FixRequest(BaseModel):
     target_env: str = "linux"
     iteration: int = 1
     record_id: Optional[int] = None
+    working_directory: str = ""
 
 @app.post("/api/v1/automate/fix", response_model=TaskResponse)
 async def fix_automation(req: FixRequest, db: Session = Depends(get_db)):
@@ -301,7 +314,7 @@ async def fix_automation(req: FixRequest, db: Session = Depends(get_db)):
     eng = AutomationEngine()
     script, reasoning, val_script, blast_report, record_id = await eng.fix_script(
         req.original_intent, req.failed_script, req.error_output,
-        req.target_env, req.iteration, db, req.record_id,
+        req.target_env, req.iteration, db, req.record_id, req.working_directory,
     )
     return TaskResponse(
         id=record_id if record_id != -1 else None,
@@ -342,10 +355,7 @@ async def assess_skills(req: SkillAssessmentRequest, db: Session = Depends(get_d
 @app.get("/api/v1/assess/history")
 async def get_assessment_history(db: Session = Depends(get_db)):
     records = db.query(models.SkillAssessmentRecord).order_by(models.SkillAssessmentRecord.created_at.desc()).limit(50).all()
-    return [
-        {k: v for k, v in r.__dict__.items() if not k.startswith("_")}
-        for r in records
-    ]
+    return [serialize_record(r) for r in records]
 
 # ---------------------------------------------------------------------------
 # Feature 2 — Team Knowledge Base (Vector RAG) endpoints
